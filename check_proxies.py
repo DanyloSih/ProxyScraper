@@ -6,21 +6,51 @@ import requests
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# Количество воркеров и таймауты
-WORKERS = 200
-TIMEOUT = 2  # в секундах
+# Настройки по умолчанию
+default_WORKERS = 200
+default_TIMEOUT = 2  # в секундах
 GEO_CACHE = {}
+
+# Значения, которые будут использоваться в работе
+WORKERS = default_WORKERS
+TIMEOUT = default_TIMEOUT
+
+def get_user_config():
+    """
+    Запрашивает у пользователя ввод для WORKERS и TIMEOUT.
+    При некорректном вводе или пустой строке используются значения по умолчанию.
+    """
+    global WORKERS, TIMEOUT
+    # Ввод количества воркеров
+    try:
+        inp_w = input(f"WORKERS - количество воркеров, стандартное значение ({default_WORKERS}): ")
+        if inp_w.strip():
+            WORKERS = int(inp_w)
+        else:
+            WORKERS = default_WORKERS
+    except ValueError:
+        WORKERS = default_WORKERS
+
+    # Ввод таймаута
+    try:
+        inp_t = input(f"TIMEOUT - таймаут подключения в секундах, стандартное значение ({default_TIMEOUT}): ")
+        if inp_t.strip():
+            TIMEOUT = float(inp_t)
+        else:
+            TIMEOUT = default_TIMEOUT
+    except ValueError:
+        TIMEOUT = default_TIMEOUT
+
 
 def check_and_merge_upstream():
     """
-    Проверяет, есть ли новые коммиты в upstream/main.
-    Если есть — фетчит и мерджит. При конфликтах — abort и ждет нажатия клавиши.
+    Проверяет наличие новых коммитов в upstream/main, фетчит и мерджит.
+    При конфликтах отменяет мердж и завершает работу.
     """
     print("Проверка обновлений в upstream...")
-    # Сначала фетчим upstream
     subprocess.run(['git', 'fetch', 'upstream'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    # Считаем, сколько новых коммитов в upstream/main относительно HEAD
+    # Узнаем количество новых коммитов
     rev = subprocess.run(
         ['git', 'rev-list', 'HEAD..upstream/main', '--count'],
         capture_output=True, text=True
@@ -46,13 +76,14 @@ def check_and_merge_upstream():
         print("При мердже возникли конфликты:")
         print(merge.stdout)
         print(merge.stderr)
-        # Отменяем неполный мердж
         subprocess.run(['git', 'merge', '--abort'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         input("Нажмите любую клавишу для выхода...")
         sys.exit(1)
 
+
 def ensure_output_dir():
     os.makedirs("available", exist_ok=True)
+
 
 def get_country(ip):
     if ip in GEO_CACHE:
@@ -64,6 +95,7 @@ def get_country(ip):
         country = "??"
     GEO_CACHE[ip] = country
     return country
+
 
 def measure_proxy_connection(proxy, handshake_fn):
     try:
@@ -82,9 +114,11 @@ def measure_proxy_connection(proxy, handshake_fn):
     except:
         return None
 
+
 def handshake_socks5(s, host, port):
     s.sendall(b'\x05\x01\x00')
     return s.recv(2) == b'\x05\x00'
+
 
 def handshake_socks4(s, host, port):
     try:
@@ -97,11 +131,13 @@ def handshake_socks4(s, host, port):
     resp = s.recv(8)
     return len(resp) == 8 and resp[1] == 0x5A
 
+
 def handshake_http(s, host, port):
     req = b"GET http://example.com/ HTTP/1.0\r\nHost: example.com\r\n\r\n"
     s.sendall(req)
     resp = s.recv(7)
     return resp.startswith(b"HTTP/")
+
 
 def process_file(input_file, output_filename, handshake_fn, label):
     try:
@@ -138,9 +174,12 @@ def process_file(input_file, output_filename, handshake_fn, label):
 
     print(f"{label}: найдено {len(results)} рабочих из {total}")
 
+
 if __name__ == '__main__':
+    get_user_config()
     check_and_merge_upstream()
     ensure_output_dir()
     process_file('socks5.txt', 'available_socks5.txt', handshake_socks5, 'SOCKS5')
     process_file('socks4.txt', 'available_socks4.txt', handshake_socks4, 'SOCKS4')
     process_file('http.txt',   'available_http.txt',   handshake_http,   'HTTP')
+    input("Нажмите любую клавишу для выхода...")
